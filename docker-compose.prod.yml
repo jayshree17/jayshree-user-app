@@ -1,0 +1,55 @@
+
+# Production compose — uses pre-built images from GitHub Container Registry
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: userapp-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  api:
+    image: ghcr.io/${GITHUB_USER:-jayshreewagh}/jayshree-user-app-api:latest
+    container_name: userapp-api
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${DB_PASSWORD}@db:5432/${POSTGRES_DB}"
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+  frontend:
+    image: ghcr.io/${GITHUB_USER:-jayshreewagh}/jayshree-user-app-frontend:latest
+    container_name: userapp-frontend
+    volumes:
+      - frontend_dist:/usr/share/nginx/html
+    restart: always
+
+  nginx:
+    image: ghcr.io/${GITHUB_USER:-jayshreewagh}/jayshree-user-app-nginx:latest
+    container_name: userapp-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - frontend_dist:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+      - frontend
+    restart: always
+
+volumes:
+  pgdata:
+  frontend_dist:
