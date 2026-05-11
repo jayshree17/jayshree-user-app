@@ -1,54 +1,58 @@
-
-# Production compose — uses pre-built images from GitHub Container Registry
-# Usage: docker compose -f docker-compose.prod.yml up -d
+version: "3.9"
 
 services:
   db:
     image: postgres:16-alpine
-    container_name: userapp-db
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-userapp}
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-localdev123}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser} -d ${POSTGRES_DB:-userapp}" ]
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
 
   api:
-    image: ghcr.io/${GITHUB_USER:-jayshreewagh}/jayshree-user-app-api:latest
-    container_name: userapp-api
+    image: ghcr.io/jayshree17/jayshree-user-app-api:latest
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${DB_PASSWORD}@db:5432/${POSTGRES_DB}"
-      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-appuser}:${DB_PASSWORD:-localdev123}@db:5432/${POSTGRES_DB:-userapp}"
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
     depends_on:
       db:
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
 
   frontend:
-    image: ghcr.io/${GITHUB_USER:-jayshreewagh}/jayshree-user-app-frontend:latest
-    container_name: userapp-frontend
+    image: ghcr.io/jayshree17/jayshree-user-app-frontend:latest
     volumes:
       - frontend_dist:/usr/share/nginx/html
-    restart: always
+    restart: unless-stopped
 
   nginx:
-    image: ghcr.io/${GITHUB_USER:-jayshreewagh}/jayshree-user-app-nginx:latest
-    container_name: userapp-nginx
+    image: ghcr.io/jayshree17/jayshree-user-app-nginx:latest
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - frontend_dist:/usr/share/nginx/html:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
     depends_on:
       - api
       - frontend
-    restart: always
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h; done'"
+    restart: unless-stopped
 
 volumes:
   pgdata:

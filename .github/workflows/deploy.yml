@@ -69,13 +69,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Copy compose file to EC2
+      - name: Copy files to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.prod.yml"
+          source: "docker-compose.prod.yml,nginx/init-letsencrypt.sh"
           target: "~/jayshree-user-app/"
 
       - name: Deploy via SSH
@@ -101,6 +101,14 @@ jobs:
 
             # Pull latest images and deploy
             docker compose -f docker-compose.prod.yml pull
+
+            # Bootstrap SSL if certificates don't exist yet
+            if [ ! -d "./certbot/conf/live/app.jayshree.dev" ]; then
+              echo "🔒 First deploy — bootstrapping SSL certificates..."
+              chmod +x nginx/init-letsencrypt.sh
+              bash nginx/init-letsencrypt.sh
+            fi
+
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             # Cleanup old images
@@ -108,5 +116,5 @@ jobs:
 
             # Health check
             sleep 10
-            curl -f http://localhost/api/health || echo "⚠️ Health check failed"
+            curl -f -k https://localhost/api/health || curl -f http://localhost/api/health || echo "⚠️ Health check failed"
             echo "✅ Deployment complete!"
